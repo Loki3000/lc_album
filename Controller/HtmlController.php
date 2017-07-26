@@ -18,21 +18,16 @@ class HtmlController extends \LC\ModuleTools
     protected $tpl;
     protected $albumService;
     protected $imageService;
-    protected $imageView;
-    protected $albumView;
 
 
-    public function __construct(\LC\Tpl $tpl,
+    public function __construct(
+        \LC\Tpl $tpl,
         \LCM\lc_album\Service\AlbumService $albumService,
-        \LCM\lc_album\Service\ImageService $imageService,
-        \LCM\lc_album\View\AlbumView $albumView,
-        \LCM\lc_album\View\ImageView $imageView)
-    {
+        \LCM\lc_album\Service\ImageService $imageService
+    ) {
         $this->tpl=$tpl;
         $this->albumService=$albumService;
         $this->imageService=$imageService;
-        $this->albumView=$albumView;
-        $this->imageView=$imageView;
         $this->validation=\HTML_QuickForm2_Rule::SERVER | \HTML_QuickForm2_Rule::CLIENT;
     }
 
@@ -48,7 +43,7 @@ class HtmlController extends \LC\ModuleTools
         $data=$this->albumService->getByPage($page, Config::get('albums_at_page'));
 
         $this->tpl->assign('pager', $this->getPager($data['totalCount'], $page, Config::get('albums_at_page')));
-        $this->tpl->assign('albums', $this->getAlbumsViewCollection($data['collection']));
+        $this->tpl->assign('albums', $data['collection']);
 
         $this->setTpl('albums');
     }
@@ -64,9 +59,9 @@ class HtmlController extends \LC\ModuleTools
 
         $page=isset($_GET['var2'])?intval($_GET['var2']):1;
         $data=$this->imageService->getByAlbum($album, $page, Config::get('items_at_page'));
-        $this->tpl->assign('images', $this->getImagesViewCollection($data['collection']));
+        $this->tpl->assign('images', $data['collection']);
         $this->tpl->assign('pager', $this->getPager($data['totalCount'], $page, Config::get('items_at_page')));
-        $this->tpl->assign('album', $this->getAlbumView($album));
+        $this->tpl->assign('album', $album);
 
         /*if (Config::get('use_album_comments')) {
             list($item, $comments, $votes)=$album->getComments($album);
@@ -86,7 +81,7 @@ class HtmlController extends \LC\ModuleTools
         $form=$this->albumService->buildEditForm();
 
         if ($form->validate()) {
-            if ($album=$this->albumService->create($form->getValue())) {
+            if ($album=$this->albumService->add($form->getValue())) {
                 refresh('', _url(array('params' =>array($album->id, 1), 'action' =>'album')));
             }
         }
@@ -161,6 +156,7 @@ class HtmlController extends \LC\ModuleTools
         if (!$album=$this->getAlbumById($_GET['var1'])) {
             return;
         }
+        $this->imageService->deleteByAlbum($album);
         $this->albumService->delete($album);
         refresh();
     }
@@ -199,8 +195,8 @@ class HtmlController extends \LC\ModuleTools
             $images=$this->imageService->getByAlbum($album, 1, 0);
         }
 
-        $this->tpl->assign('images', $this->getImagesViewCollection($images['collection']));
-        $this->tpl->assign('album', $this->getAlbumView($album));
+        $this->tpl->assign('images', $images['collection']);
+        $this->tpl->assign('album', $album);
         $this->setTpl('sorter');
         $this->setTitle($album, null, _m('Сортировка изображений'));
     }
@@ -212,11 +208,11 @@ class HtmlController extends \LC\ModuleTools
         if (!$image=$this->getImageById($_GET['var1'])) {
             return;
         }
-        $imageView=$this->getImageView($image);
-        $this->tpl->assign('album', $imageView->getAlbum());
-        $this->tpl->assign('image', $imageView);
-        $this->tpl->assign('next', $this->getImageView($this->imageService->getNext($image)));
-        $this->tpl->assign('prev', $this->getImageView($this->imageService->getPrevious($image)));
+        $album=$this->getAlbumById($image->album_id);
+        $this->tpl->assign('album', $album);
+        $this->tpl->assign('image', $image);
+        $this->tpl->assign('next', $this->imageService->getNext($image));
+        $this->tpl->assign('prev', $this->imageService->getPrevious($image));
         $this->setTpl('image');
 
         /*
@@ -231,7 +227,7 @@ class HtmlController extends \LC\ModuleTools
             $this->tpl->assign('comment_votes', $votes);
             $this->tpl->assign('comments_item', $item);
         }*/
-        $this->setTitle($imageView->getAlbum(), $imageView);
+        $this->setTitle($album, $image);
     }
 
     public function imageAddAction()
@@ -271,6 +267,7 @@ class HtmlController extends \LC\ModuleTools
             return;
         }
         $form=$this->imageService->buildEditForm($image);
+        $this->setAlbums(array($image));
 
         if ($form->validate()) {
             $data=$form->getValue();
@@ -295,12 +292,11 @@ class HtmlController extends \LC\ModuleTools
         }
 
         $this->setTpl('form');
-        $imageView=$this->getImageView($image);
-        $this->tpl->assign('image', $imageView);
-        $this->tpl->assign('album', $imageView->getAlbum());
+        $this->tpl->assign('image', $image);
+        $this->tpl->assign('album', $image->getAlbum());
         $this->tpl->assign('form', $this->renderForm($form));
 
-        $this->setTitle($imageView->getAlbum(), $image, _m('Редактирование изображения'));
+        $this->setTitle($image->getAlbum(), $image, _m('Редактирование изображения'));
     }
 
     public function imageDeleteAction()
@@ -346,49 +342,21 @@ class HtmlController extends \LC\ModuleTools
         return $image;
     }
 
-    protected function getAlbumView($item)
-    {
-        if(!$item) return;
-        $data=$this->getAlbumsViewCollection(array($item));
-        return array_pop($data);
-    }
-
-    protected function getImageView($item)
-    {
-        if(!$item) return;
-        $data=$this->getImagesViewCollection(array($item));
-        return array_pop($data);
-    }
-
-    protected function getAlbumsViewCollection($items)
-    {
-        $collection=array();
-        foreach ($items as $item) {
-            $album=new $this->albumView($item);
-            $album->setLogo($this->albumService->getLogoUrl($item));
-            $collection[$album->id]=$album;
-        }
-        return $collection;
-    }
-
-    protected function getImagesViewCollection($items)
+    protected function setAlbums($images)
     {
         $collection=$albums=array();
-        foreach ($items as $item) {
-            $albums[]=$item->album_id;
+        foreach ($images as $image) {
+            $albums[]=$image->album_id;
         }
 
         if ($albums) {
-            $albums=$this->getAlbumsViewCollection($this->albumService->getByArrayId($albums));
+            $albums=$this->albumService->getByArrayId($albums);
         }
 
-        foreach ($items as $item) {
-            $image=new $this->imageView($item);
-            $image->setFiles($this->imageService->getImageFiles($item));
+        foreach ($images as $image) {
             $image->setAlbum($albums[$image->album_id]);
-            $collection[$image->id]=$image;
         }
-        return $collection;
+        return $images;
     }
 
     protected function setTitle($album, $image = null, $text = '', $url = '')
@@ -425,5 +393,4 @@ class HtmlController extends \LC\ModuleTools
         $title=implode(' / ', $title);
         Config::set('core.title', $title);
     }
-
 }

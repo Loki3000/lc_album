@@ -6,6 +6,7 @@
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 */
 namespace LCM\lc_album\Service;
+
 use \LC\Config;
 use \LC\Factory;
 
@@ -18,32 +19,27 @@ class AlbumService extends Service
 
     public function __construct(
         \LCM\lc_album\Repository\ImageRepository $imageRepository,
-        \LCM\lc_album\Repository\AlbumRepository $albumRepository)
-    {
+        \LCM\lc_album\Repository\AlbumRepository $albumRepository
+    ) {
         $this->imageRepository=$imageRepository;
         $this->albumRepository=$albumRepository;
         $this->validation=\HTML_QuickForm2_Rule::SERVER | \HTML_QuickForm2_Rule::CLIENT;
     }
 
-    public function create($data)
+    public function add($data)
     {
-        $this->filterValues($data);
-        $album=$this->albumRepository->add($data);
-        $album->pos=$album->id;
-        $this->albumRepository->save($album);
-        return $album;
+        return $this->albumRepository->add($data);
     }
 
     public function update($album, $data)
     {
         $this->filterValues($data);
-        $album->setData($data);
+        $album->set($data);
         $this->albumRepository->save($album);
     }
 
     public function delete($album)
     {
-        $this->deleteFiles($album);
         return $this->albumRepository->delete($album);
     }
 
@@ -88,27 +84,8 @@ class AlbumService extends Service
 
     public function setLogo($album, $image)
     {
-        $file=$this->getSmallImageUrl($image);
-        $dir=LAB_PATH_ROOT.Config::get('basepath').Config::get('logo_path');
-        if (!is_dir($dir) && !mkdir($dir, 0777)) {
-            return LabCMS::i()->error(sprintf(_m("Не могу создать директорию %s"), $dir));
-        }
-        $album->logo=basename($file);
-        $this->albumRepository->save($album);
-        copy(LAB_PATH_ROOT.$file, $dir.'/'.$album->logo);
+        $this->albumRepository->setLogo($album, $image->files['small']);
         return true;
-    }
-
-    public function getLogoUrl($album)
-    {
-        if (!$album->logo) return '';
-        return Config::get('basepath').Config::get('logo_path').'/'.$album->logo;
-    }
-
-    public function getSmallImageUrl($image)
-    {
-        $tn=Config::get('tn');
-        return Config::get('basepath').$tn['small']['path'].'/'.$image->filename;
     }
 
     protected function swapPos($album, $album2)
@@ -123,7 +100,7 @@ class AlbumService extends Service
 
     public function addImage($album, $image)
     {
-        $data['pos']=$this->imageRepository->getMaxPos($item)+1;
+        $image->pos=$this->imageRepository->getMaxPos($image)+1;
         $image=$this->imageRepository->save($image);
 
         //если у альбома еще нет логотипа - устанавливаем его
@@ -131,14 +108,6 @@ class AlbumService extends Service
             $this->setLogo($album, $image);
         }
         return $image;
-    }
-
-    public function deleteFiles($album)
-    {
-        if ($file=$this->getLogoUrl($album))
-        {
-            unlink(LAB_PATH_ROOT.$file);
-        }
     }
 
     public function buildEditForm($album = null)
@@ -166,7 +135,7 @@ class AlbumService extends Service
             $form->addDataSource(
                 Factory::create(
                     'HTML_QuickForm2_DataSource_Array',
-                    $album->getData()
+                    $album->getArray()
                 )
             );
         }

@@ -7,10 +7,11 @@
 */
 namespace LCM\lc_album\Repository;
 
-class Repository
+abstract class Repository
 {
     protected $orm;
     protected $cacher;
+    protected $entity;
 
     protected $cache_time=604800;//60*60*24*7
 
@@ -18,10 +19,11 @@ class Repository
 
     protected $allowedFields=array();
 
-    public function __construct(\LC\ORM $orm, \LC\Cacher $cacher)
+    public function __construct(\LC\ORM $orm, \LC\Cacher $cacher, \LC\Entity $entity)
     {
         $this->orm=$orm;
         $this->cacher=$cacher;
+        $this->entity=$entity;
     }
 
     public function getById($id)
@@ -31,7 +33,22 @@ class Repository
 
         if (false === ($data=$this->cacher->get($key))) {
             $data=$this->orm->table($this->table, $id);
+            $data=$this->prepareResult($data);
+            $this->cacher->set($data, $key, array($this->getCacheKeyUpdate()), $this->getCacheTime());
+        }
+        
+        return $data;
+    }
 
+    public function getByArrayId($ids)
+    {
+        $key=$this->getCacheKey().implode('_', $ids);
+
+        if (false === ($data=$this->cacher->get($key))) {
+            $table=$this->orm->table($this->table);
+
+            $data=$table->where('id', $ids)->fetchAll();
+            $data=$this->prepareResults($data);
             $this->cacher->set($data, $key, array($this->getCacheKeyUpdate()), $this->getCacheTime());
         }
         
@@ -57,9 +74,12 @@ class Repository
     {
         return $this->cache_time;
     }
-    protected function getCacheKey()
+    protected function getCacheKey($table=null)
     {
-        return $this->table.'_';
+        if (is_null($table)) {
+            $table=$this->table;
+        }
+        return $table.'_';
     }
 
     protected function getCacheKeyUpdate()
@@ -67,26 +87,58 @@ class Repository
         return $this->getCacheKey().'update';
     }
 
-    public function save($item)
+    public function save($entity)
     {
+        if ($entity->id) {
+            $item=$this->orm->createRow($this->table);
+            $item->id=$entity->id;
+            $item->setClean();
+            $item->setData($this->getFilteredFields($entity->getArray()));
+        } else {
+            var_dump($entity->getArray());
+            exit;
+            $item=$this->orm->createRow($this->table, $this->getFilteredFields($entity->getArray()));
+        }
         $item->save();
+        if (!$entity->id) {
+            $entity->id=$item->id;
+        } else {
+            $this->cacher->remove($this->getCacheKey().$item->id);
+        }
+        $this->cacher->clean('MATCH_TAG', array($this->getCacheKeyUpdate()));
+        return $entity;
     }
     
-    public function update($item, $data)
-    {
-        $item->update($this->getFilteredFields($data));
-        return $item;
-    }
-
     public function create($data)
     {
-        $item=$this->orm->createRow($this->table, $this->getFilteredFields($data));
-        return $item;
+        return new $this->entity($data);
+    }
+
+    protected function prepareResult($item)
+    {
+        if (!$item) {
+            return null;
+        }
+        $collection=$this->prepareResults(array($item));
+        return array_pop($collection);
+    }
+
+    protected function prepareResults($collection)
+    {
+        $result=array();
+                
+        foreach ($collection as $item) {
+            $result[$item->id]=new $this->entity($item->getData());
+        }
+        return $result;
     }
 
     public function getFilteredFields($data)
     {
-        foreach ($data as $k=>$v) {
+        if (empty($this->allowedFields)) {
+            throw new \LogicException('allowedFields is empty in '.get_called_class());
+        }
+        foreach ($data as $k => $v) {
             if (!in_array($k, $this->allowedFields)) {
                 unset($data[$k]);
             }

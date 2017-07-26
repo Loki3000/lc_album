@@ -13,7 +13,7 @@ abstract class Service
     
     public function filterValues(&$data)
     {
-        foreach ($data as $key=>$value) {
+        foreach ($data as $key => $value) {
             if (!in_array($key, $this->allowedKeys)) {
                 unset($data[$key]);
             }

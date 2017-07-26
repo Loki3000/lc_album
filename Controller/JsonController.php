@@ -21,8 +21,7 @@ class JsonController
     public function __construct(
         \LCM\lc_album\Service\AlbumService $albumService,
         \LCM\lc_album\Service\ImageService $imageService
-    )
-    {
+    ) {
         $this->albumService=$albumService;
         $this->imageService=$imageService;
         $this->validation=\HTML_QuickForm2_Rule::SERVER | \HTML_QuickForm2_Rule::CLIENT;
@@ -50,11 +49,10 @@ class JsonController
         $images=$this->imageService->getByAlbum($album, $page, $atPage, false);
         $result=array();
         foreach ($images['collection'] as $image) {
-            $files=$this->imageService->getImageFiles($image);
             $result['images'][]=(object)array(
                 'href'=>_url(array('action'=>'image', 'params'=>$image->id)),
-                'image'=>$files['original'],
-                'thumb'=>$files['small'],
+                'image'=>$image->files['original'],
+                'thumb'=>$image->files['small'],
                 'title'=>$image->name?$image->name:''
             );
         }
@@ -84,12 +82,11 @@ class JsonController
             $image=$this->imageService->add($data);
             if ($image) {
                 $this->albumService->addImage($album, $image);
-                $files=$this->imageService->getImageFiles($image);
                 $info=array(
                     'name' => $image->filename,
                     'url' =>_url(array('params' => $image->id, 'action' =>'image')),
-                    'thumbnailUrl' => $files['small'],
-                    'size' =>filesize(LAB_PATH_ROOT.$files['small']),
+                    'thumbnailUrl' => $image->files['small'],
+                    'size' =>filesize(LAB_PATH_ROOT.$image->files['small']),
                     'status' =>1,
                     'width' =>100,
                     'height' =>100
